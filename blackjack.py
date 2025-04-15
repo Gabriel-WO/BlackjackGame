@@ -1,11 +1,12 @@
 # blackjack.py
 # Main game file for Blackjack with Pygame
-# Julian Cochran
-# 04.08.2025
+# Gabriel Whangbo-Olvera (original made by Julian Cochran)
+# 04.15.2025
 
 import pygame
 import os
 import sys
+import random
 from deck import Deck  # Import Deck from deck.py
 from hand import Hand  # Import Hand from hand.py
 
@@ -27,6 +28,8 @@ STATE_DEALING = 0
 STATE_PLAYER_TURN = 1
 STATE_DEALER_TURN = 2
 STATE_GAME_OVER = 3
+STATE_PLAYER_BETTING = 4
+STATE_PLAYER_LOSS = 5
 
 
 class BlackjackGame:
@@ -38,9 +41,19 @@ class BlackjackGame:
         self.card_images = {}
         self.load_card_images()
 
+        # Set player
+        self.player_funds = 100
+
+        # Set player/dealer wins
+        self.player_wins = 0
+        self.dealer_wins = 0
+
         # Create font objects
         self.font = pygame.font.SysFont(None, 36)
         self.small_font = pygame.font.SysFont(None, 24)
+
+        # Set betting
+        self.current_bet_amount = ''
 
         # Initialize game
         self.reset_game()
@@ -107,6 +120,14 @@ class BlackjackGame:
 
         return img
 
+    # Restart the game after you lose
+    def restart_game(self):
+        self.player_funds = 100
+        self.player_wins = 0
+        self.dealer_wins = 0
+        self.reset_game()
+        self.game_state = STATE_PLAYER_BETTING
+
     def reset_game(self):
         """Reset the game to its initial state"""
         self.deck = Deck()
@@ -121,9 +142,30 @@ class BlackjackGame:
         self.player_hand.add_card(self.deck.deal())
         self.dealer_hand.add_card(self.deck.deal())
 
-        self.game_state = STATE_PLAYER_TURN
-        self.message = "Your turn: Hit or Stand?"
+        self.current_bet_amount = ''
+        self.game_state = STATE_PLAYER_BETTING
+        self.message = 'How much do you want to bet (type in)?'
         self.show_dealer_first_card_only = True
+
+        if self.player_funds <= 0:
+            self.game_state = STATE_PLAYER_LOSS
+
+    # Determine bet amount and pay bet
+    def player_bet(self):
+        try:
+            bet_amount = int(self.current_bet_amount)
+            if bet_amount < 0:
+                self.message = 'Please enter a valid amount'
+                return
+            elif bet_amount > self.player_funds:
+                self.message = 'You are too poor'
+                return
+            self.bet_player = bet_amount
+            self.player_funds -= bet_amount
+            self.game_state = STATE_PLAYER_TURN
+            self.message = 'Your turn: Hit or Stand?'
+        except ValueError:
+            self.message = 'Please enter a valid amount'
 
     def player_hit(self):
         """Player takes another card"""
@@ -134,6 +176,7 @@ class BlackjackGame:
         if self.player_hand.is_busted():
             self.game_state = STATE_GAME_OVER
             self.message = "You busted! Dealer wins."
+            self.dealer_wins += 1
             self.show_dealer_first_card_only = False
 
     def player_stand(self):
@@ -156,12 +199,18 @@ class BlackjackGame:
 
         if self.dealer_hand.is_busted():
             self.message = "Dealer busted! You win!"
+            self.player_wins += 1
+            self.player_funds += 2 * self.bet_player
         elif dealer_value > player_value:
             self.message = "Dealer wins!"
+            self.dealer_wins += 1
         elif player_value > dealer_value:
             self.message = "You win!"
+            self.player_wins += 1
+            self.player_funds += 2 * self.bet_player
         else:
             self.message = "Push! It's a tie."
+            self.player_funds += self.bet_player
 
     def draw_card(self, card, x, y, face_up=True):
         """Draw a card at the specified position"""
@@ -222,23 +271,43 @@ class BlackjackGame:
         # Draw scores
         dealer_score = self.dealer_hand.calculate_value() if not self.show_dealer_first_card_only else "?"
         player_score = self.player_hand.calculate_value()
+        dealer_wins = self.dealer_wins
+        player_wins = self.player_wins
+        player_funds = self.player_funds
 
         dealer_text = self.font.render(f"Dealer: {dealer_score}", True, TEXT_COLOR)
         player_text = self.font.render(f"Player: {player_score}", True, TEXT_COLOR)
+        dealer_wins_text = self.font.render(f"Dealer Wins: {dealer_wins}", True, TEXT_COLOR)
+        player_wins_text = self.font.render(f"Player Wins: {player_wins}", True, TEXT_COLOR)
+        player_funds_text = self.font.render(f"Player Funds: {player_funds}", True, TEXT_COLOR)
 
         self.screen.blit(dealer_text, (50, 10))
         self.screen.blit(player_text, (50, 310))
+        self.screen.blit(dealer_wins_text, (550, 10))
+        self.screen.blit(player_wins_text, (550, 310))
+        self.screen.blit(player_funds_text, (550, 340))
 
         # Draw message
+        if self.game_state == STATE_PLAYER_BETTING:
+            bet_text = self.font.render(f"Bet Amount: ${self.current_bet_amount or '0'}", True, (255,255,255))
+            self.screen.blit(bet_text, (SCREEN_WIDTH // 2 - bet_text.get_width() // 2, 300))
+        elif self.game_state == STATE_PLAYER_TURN:
+            self.message = 'Your turn: Hit or Stand?'
+        elif self.game_state == STATE_PLAYER_LOSS:
+            self.message = 'YOU LOST!'
         message_text = self.font.render(self.message, True, TEXT_COLOR)
         self.screen.blit(message_text, (SCREEN_WIDTH // 2 - message_text.get_width() // 2, 250))
 
         # Draw buttons based on game state
-        if self.game_state == STATE_PLAYER_TURN:
+        if self.game_state == STATE_PLAYER_BETTING:
+            self.draw_button('Bet', SCREEN_WIDTH // 2 - 50, 350, 100, 40)
+        elif self.game_state == STATE_PLAYER_TURN:
             self.draw_button("Hit", SCREEN_WIDTH // 2 - 125, 500, 100, 40)
             self.draw_button("Stand", SCREEN_WIDTH // 2 + 25, 500, 100, 40)
         elif self.game_state == STATE_GAME_OVER:
             self.draw_button("Play Again", SCREEN_WIDTH // 2 - 50, 500, 100, 40)
+        elif self.game_state == STATE_PLAYER_LOSS:
+            self.draw_button('Restart', SCREEN_WIDTH // 2 - 50, 350, 100, 40)
 
     def run(self):
         """Main game loop"""
@@ -254,12 +323,25 @@ class BlackjackGame:
                 if event.type == pygame.QUIT:
                     running = False
 
+                # Handle keyboard / betting
+                elif event.type == pygame.KEYDOWN and self.game_state == STATE_PLAYER_BETTING:
+                    if event.key == pygame.K_BACKSPACE:
+                        self.current_bet_amount = self.current_bet_amount[:-1]
+                    elif event.key == pygame.K_RETURN and self.current_bet_amount:
+                        self.player_bet()
+                    elif event.unicode.isdigit():
+                        self.current_bet_amount += event.unicode
+
                 # Handle mouse clicks
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     mouse_pos = pygame.mouse.get_pos()
 
                     # Check which button was clicked based on game state
-                    if self.game_state == STATE_PLAYER_TURN:
+                    if self.game_state == STATE_PLAYER_BETTING:
+                        if self.check_button_click(mouse_pos, SCREEN_WIDTH // 2 - 50, 350, 100, 40):
+                            self.player_bet()
+
+                    elif self.game_state == STATE_PLAYER_TURN:
                         # Hit button
                         if self.check_button_click(mouse_pos, SCREEN_WIDTH // 2 - 125, 500, 100, 40):
                             self.player_hit()
@@ -272,6 +354,11 @@ class BlackjackGame:
                     elif self.game_state == STATE_GAME_OVER:
                         if self.check_button_click(mouse_pos, SCREEN_WIDTH // 2 - 50, 500, 100, 40):
                             self.reset_game()
+
+                    # Restart game
+                    elif self.game_state == STATE_PLAYER_LOSS:
+                        if self.check_button_click(mouse_pos, SCREEN_WIDTH // 2 - 50, 350, 100, 40):
+                            self.restart_game()
 
             # Update display
             pygame.display.flip()
